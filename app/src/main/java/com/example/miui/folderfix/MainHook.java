@@ -50,7 +50,8 @@ public class MainHook implements IXposedHookLoadPackage {
                     if (sourceId != folderTitleStyleId) return;
 
                     // 2. 获取当前 index 对应的属性 ID
-                    int attrId = ta.getAttributeId(index, 0);
+                    // getAttributeId 是隐藏方法，需要通过反射调用
+                    int attrId = (int) XposedHelpers.callMethod(ta, "getAttributeId", index, 0);
 
                     // 3. 根据属性 ID 精准替换，不判断原始值
                     if (attrId == androidFontFamilyAttrId) {
