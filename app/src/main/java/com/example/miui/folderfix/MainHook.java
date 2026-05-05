@@ -10,9 +10,14 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 
 public class MainHook implements IXposedHookLoadPackage {
     private static final String TARGET_PACKAGE = "com.miui.home";
+    private static final String FOLDER_TITLE_STYLE = "FolderTitle";
+    private static final String FONT_ANDROID_FROM = "sans-serif-light";
+    private static final String FONT_ANDROID_TO = "sans-serif-bold";
+    private static final String FONT_MIUI_FROM = "mipro-medium";
+    private static final String FONT_MIUI_TO = "mipro-bold";
+
     private int folderTitleStyleId = 0;
-    private int customFontFamilyAttrId = 0;
-    private final int androidFontFamilyAttrId = android.R.attr.fontFamily;
+    private boolean initLogged = false;
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) throws Throwable {
@@ -20,18 +25,16 @@ public class MainHook implements IXposedHookLoadPackage {
 
         XposedHelpers.findAndHookMethod("android.app.Instrumentation", lpparam.classLoader, "callApplicationOnCreate", "android.app.Application", new XC_MethodHook() {
             @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                if (folderTitleStyleId != 0) return;
+
                 android.app.Application app = (android.app.Application) param.args[0];
                 Resources res = app.getResources();
-                
-                // 获取样式的 ID
-                folderTitleStyleId = res.getIdentifier("FolderTitle", "style", TARGET_PACKAGE);
-                // 获取自定义属性 fontFamily 的 ID (注意不是 android:fontFamily)
-                customFontFamilyAttrId = res.getIdentifier("fontFamily", "attr", TARGET_PACKAGE);
-                
-                if (folderTitleStyleId != 0) {
-                    XposedBridge.log("MIUI Folder Title Fix: Initialized with StyleID=" + Integer.toHexString(folderTitleStyleId) + 
-                                     ", CustomAttrID=" + Integer.toHexString(customFontFamilyAttrId));
+
+                folderTitleStyleId = res.getIdentifier(FOLDER_TITLE_STYLE, "style", TARGET_PACKAGE);
+                if (!initLogged) {
+                    initLogged = true;
+                    XposedBridge.log("MIUI Folder Title Fix: StyleID=" + Integer.toHexString(folderTitleStyleId));
                 }
             }
         });
@@ -45,24 +48,20 @@ public class MainHook implements IXposedHookLoadPackage {
                 int index = (int) param.args[0];
 
                 try {
-                    // 1. 确认该属性是否来自 FolderTitle 样式
                     int sourceId = ta.getSourceResourceId(index, 0);
                     if (sourceId != folderTitleStyleId) return;
 
-                    // 2. 获取当前 index 对应的属性 ID
-                    // getAttributeId 是隐藏方法，需要通过反射调用
-                    int attrId = (int) XposedHelpers.callMethod(ta, "getAttributeId", index, 0);
+                    Object result = param.getResult();
+                    if (!(result instanceof String)) return;
 
-                    // 3. 根据属性 ID 精准替换，不判断原始值
-                    if (attrId == androidFontFamilyAttrId) {
-                        // 针对 android:fontFamily
-                        param.setResult("sans-serif-bold");
-                    } else if (attrId != 0 && attrId == customFontFamilyAttrId) {
-                        // 针对 fontFamily (MIUI 自定义字体属性)
-                        param.setResult("mipro-bold");
+                    String value = (String) result;
+                    if (FONT_ANDROID_FROM.equals(value)) {
+                        param.setResult(FONT_ANDROID_TO);
+                    } else if (FONT_MIUI_FROM.equals(value)) {
+                        param.setResult(FONT_MIUI_TO);
                     }
                 } catch (Throwable t) {
-                    // 容错
+                    XposedBridge.log("MIUI Folder Title Fix: getString hook failed: " + t);
                 }
             }
         });
